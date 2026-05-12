@@ -40,7 +40,15 @@
 
     <script>
         const frameCount = 264;
-        const BASE_URL = './frames_webp/';
+
+        // 아임웹·다른 도메인에 붙일 때는 상대경로 ./frames_webp/ 가 해당 사이트 기준이라 깨짐.
+        // GitHub에 올린 프레임을 jsDelivr로 불러옴 (로컬 file/localhost 만 폴더 직접 사용).
+        const REMOTE_FRAME_BASE =
+            'https://cdn.jsdelivr.net/gh/Moro-I/buoy-scroll-imweb@main/frames_webp/';
+        const useLocalFrames =
+            location.protocol === 'file:' ||
+            /^localhost$|^127\.0\.0\.1$/.test(location.hostname);
+        const BASE_URL = useLocalFrames ? './frames_webp/' : REMOTE_FRAME_BASE;
 
         const scrollContainer = document.querySelector('.scroll-container');
         const canvas = document.getElementById('buoy-canvas');
@@ -52,6 +60,7 @@
 
         for (let i = 1; i <= frameCount; i++) {
             const img = new Image();
+            if (!useLocalFrames) img.crossOrigin = 'anonymous';
             img.src = currentFrame(i);
             if (i === 1) img.onload = () => updateImage(1);
             images.push(img);
