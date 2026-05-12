@@ -15,11 +15,11 @@
 
         /* 실제 스크롤 길이를 만드는 컨테이너 */
         .scroll-container {
-            height: 700vh; 
+            height: 700vh;
         }
 
-        /* 캔버스를 화면에 꽉 차게 고정 */
-        canvas {
+        /* 애니메이션 구간에서만 보이는 고정 캔버스 */
+        canvas#buoy-canvas {
             position: fixed;
             top: 50%;
             left: 50%;
@@ -27,6 +27,10 @@
             width: 100vw;
             height: 100vh;
             object-fit: contain;
+            pointer-events: none;
+            z-index: 9998;
+            opacity: 0;
+            transition: opacity 0.2s ease;
         }
     </style>
 </head>
@@ -35,98 +39,110 @@
     <canvas id="buoy-canvas"></canvas>
 
     <script>
+        const frameCount = 264;
+        const BASE_URL = './frames_webp/';
+
+        const scrollContainer = document.querySelector('.scroll-container');
         const canvas = document.getElementById('buoy-canvas');
         const context = canvas.getContext('2d');
-
-        const frameCount = 181;
-
-        /**
-         * 아임웹·외부 호스팅: 아래만 본인 값으로 바꾸면 됩니다.
-         *
-         * 1) GitHub raw (저장소 Public 권장)
-         *    https://raw.githubusercontent.com/사용자명/저장소명/브랜치명/frames/
-         *
-         * 2) jsDelivr (GitHub 파일 CDN, 브라우저 캐시에 유리한 경우 많음)
-         *    https://cdn.jsdelivr.net/gh/사용자명/저장소명@브랜치명/frames/
-         */
-        const BASE_URL =
-            'https://raw.githubusercontent.com/Moro-I/buoy-scroll-imweb/main/frames/';
-
-        const currentFrame = index =>
-            `${BASE_URL}buoy_${index.toString().padStart(3, '0')}.png`;
-
         const images = [];
 
-        // 로딩 기다리지 않고 즉시 이미지 배열 생성
+        const currentFrame = (index) =>
+            `${BASE_URL}frame_${index.toString().padStart(4, '0')}.webp`;
+
         for (let i = 1; i <= frameCount; i++) {
             const img = new Image();
             img.src = currentFrame(i);
-            // 첫 번째 이미지가 로드되면 바로 화면에 그림
-            if (i === 1) {
-                img.onload = () => updateImage(1);
-            }
+            if (i === 1) img.onload = () => updateImage(1);
             images.push(img);
         }
 
-        // 브라우저 크기에 맞춰 캔버스 해상도 조절
+        function getScrollState() {
+            const rect = scrollContainer.getBoundingClientRect();
+            const viewportHeight = window.innerHeight;
+            const maxProgressDistance = Math.max(
+                1,
+                scrollContainer.offsetHeight - viewportHeight
+            );
+            const progressed = Math.min(
+                maxProgressDistance,
+                Math.max(0, -rect.top)
+            );
+            const progress = progressed / maxProgressDistance;
+
+            return {
+                progress,
+                isPinned: rect.top <= 0 && rect.bottom >= viewportHeight,
+                isBefore: rect.top > 0,
+                isAfter: rect.bottom < viewportHeight
+            };
+        }
+
+        function setCanvasVisibility(isVisible) {
+            canvas.style.opacity = isVisible ? '1' : '0';
+        }
+
+        function renderByScroll() {
+            const state = getScrollState();
+            const frameIndex = Math.min(
+                frameCount - 1,
+                Math.floor(state.progress * frameCount)
+            );
+
+            if (state.isBefore) {
+                setCanvasVisibility(false);
+                updateImage(1);
+                return;
+            }
+
+            if (state.isAfter) {
+                setCanvasVisibility(false);
+                updateImage(frameCount);
+                return;
+            }
+
+            setCanvasVisibility(state.isPinned);
+            updateImage(frameIndex + 1);
+        }
+
         function initCanvas() {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
-            updateImage(1);
+            renderByScroll();
         }
 
+        window.addEventListener('scroll', () => {
+            requestAnimationFrame(renderByScroll);
+        }, { passive: true });
         window.addEventListener('resize', initCanvas);
         window.addEventListener('load', initCanvas);
 
-        // 스크롤 시 이미지 업데이트
-        window.addEventListener('scroll', () => {
-            const scrollTop = window.scrollY;
-            const maxScrollTop = document.body.scrollHeight - window.innerHeight;
-            const scrollFraction = scrollTop / maxScrollTop;
-            
-            const frameIndex = Math.min(
-                frameCount - 1,
-                Math.floor(scrollFraction * frameCount)
-            );
+        function updateImage(index) {
+            const img = images[index - 1];
+            if (!img || !img.complete) return;
 
-            requestAnimationFrame(() => updateImage(frameIndex + 1));
-        });
+            context.clearRect(0, 0, canvas.width, canvas.height);
 
-       function updateImage(index) {
-                const img = images[index - 1];
-                if (!img || !img.complete) return;
-                
-                context.clearRect(0, 0, canvas.width, canvas.height);
+            const imgAspect = img.width / img.height;
+            const canvasAspect = canvas.width / canvas.height;
+            const margin = 0.85;
 
-                const imgAspect = img.width / img.height;
-                const canvasAspect = canvas.width / canvas.height;
-                
-                // 안전 마진: 0.8은 화면의 80% 크기만 사용하겠다는 뜻입니다. 
-                // 잘림을 더 방지하고 싶다면 이 숫자를 0.7 정도로 낮추세요.
-                const margin = 0.85; 
+            let drawWidth, drawHeight;
 
-                let drawWidth, drawHeight;
-
-                // 핵심 로직: 가로/세로 비율을 비교하여 '더 좁은 쪽'에 맞춰 크기를 조절
-                if (canvasAspect > imgAspect) {
-                    // 화면이 이미지보다 가로로 더 넓은 경우 (데스크탑 등) -> 높이에 맞춤
-                    drawHeight = canvas.height * margin;
-                    drawWidth = drawHeight * imgAspect;
-                } else {
-                    // 화면이 이미지보다 세로로 더 긴 경우 (모바일 등) -> 너비에 맞춤
-                    drawWidth = canvas.width * margin;
-                    drawHeight = drawWidth / imgAspect;
-                }
-
-                // 중앙 정렬 좌표 계산
-                const drawX = (canvas.width - drawWidth) / 2;
-                const drawY = (canvas.height - drawHeight) / 2;
-
-                context.drawImage(img, drawX, drawY, drawWidth, drawHeight);
+            if (canvasAspect > imgAspect) {
+                drawHeight = canvas.height * margin;
+                drawWidth = drawHeight * imgAspect;
+            } else {
+                drawWidth = canvas.width * margin;
+                drawHeight = drawWidth / imgAspect;
             }
 
+            const drawX = (canvas.width - drawWidth) / 2;
+            const drawY = (canvas.height - drawHeight) / 2;
 
-        // 초기 실행
+            context.drawImage(img, drawX, drawY, drawWidth, drawHeight);
+        }
+
         initCanvas();
     </script>
 </body>
